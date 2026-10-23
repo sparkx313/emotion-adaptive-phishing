@@ -1,1 +1,1 @@
-"""emotion-adaptive-phishing package."""
+"""Offline email triage utilities."""
