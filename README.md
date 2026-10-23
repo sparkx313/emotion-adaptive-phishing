@@ -1,136 +1,55 @@
-# Emotion-Adaptive Phishing Engine (Typing Rhythm ML)
+# Offline Email Threat Triage
 
-> Detects user emotional state from typing cadence patterns, then generates context-aware social engineering lures — and the countermeasure detector that catches them.
+A local command-line tool that reviews real RFC 5322 `.eml` messages for explainable phishing indicators. It checks sender/reply-to domain mismatches, gateway-reported authentication failures, pressure language in the subject, visible-link/destination mismatches, IP-literal or punycode link hosts, credentials embedded in URLs, and selected high-risk attachment extensions.
 
-[![Python](https://img.shields.io/badge/Python-3.9+-blue.svg)](https://python.org)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+The tool does not generate phishing lures, collect keystrokes, infer anyone's emotions, contact URLs, or upload message contents. It uses deterministic rules rather than a trained model, so each result shows the evidence that raised its review priority.
 
----
+## Requirements
 
-## The Concept
+- Python 3.10 or newer
+- Python standard library only
 
-Human typing rhythm changes measurably under emotional stress:
-- **Anxious**: faster keystrokes, more backspaces, higher inter-key variance
-- **Angry**: harder key impacts (force if measured), shorter bursts, more all-caps
-- **Sad**: slower rhythm, longer pauses, more deletions
-- **Calm**: steady rhythm, low variance, consistent speed
+No API key, model download, or network access is needed.
 
-This system:
-1. **🔴 Red Module**: Builds a typing-emotion classifier + adaptive phishing email generator that tailors urgency, tone, and timing based on detected emotional state
-2. **🔵 Blue Module**: A phishing email detector trained specifically on emotionally-adaptive lure patterns (harder to spot than generic phishing)
+## Analyze one message
 
----
-
-## Emotion Classification Model
-
-| Feature | Source |
-|---------|--------|
-| Mean inter-key interval (ms) | Typing rhythm |
-| Std dev of key intervals | Variability |
-| Backspace frequency | Error rate |
-| Burst-pause ratio | Stress indicator |
-| Typing speed trend | Acceleration/deceleration |
-| Key overlap rate | Simultaneous presses |
-| Session duration | Engagement level |
-
-**Classifier:** LSTM + Attention over keystroke timing sequence → 5-class emotion output
-
----
-
-## Usage
-
-### Train Emotion Classifier
-
-```bash
-python -m src.emotion_classifier.train \
-    --data data/typing-sessions/ \
-    --epochs 80 \
-    --output checkpoints/emotion_lstm.pt
+```powershell
+python -m src.email_triage "inbox-message.eml"
 ```
 
-### Generate Adaptive Phishing Email (Red Team)
+Save a JSON report:
 
-```python
-from src.phishing_generator import EmotionAdaptivePhisher
-
-phisher = EmotionAdaptivePhisher(
-    emotion_model="checkpoints/emotion_lstm.pt",
-    llm_api_key="your-api-key",  # optional: use local model
-)
-
-email = phisher.generate(
-    target_name="alice@company.com",
-    detected_emotion="anxious",
-    context="recent_missed_deadline",
-)
-print(email.subject)  # "URGENT: Action Required on Your Account (Time-Sensitive)"
+```powershell
+python -m src.email_triage "inbox-message.eml" --output "reports/inbox-message.json"
 ```
 
-### Train Phishing Detector (Blue Team)
+Print the complete JSON report to the terminal:
 
-```bash
-python -m src.phishing_detector.train \
-    --corpus data/phishing-emails/ \
-    --emotion-augmented \
-    --output checkpoints/phish_detector.pt
+```powershell
+python -m src.email_triage "inbox-message.eml" --json
 ```
 
----
+Analyze `.eml` files directly inside a folder, or add `--recursive` to include subfolders:
 
-## Dataset: EmotionTaggedTyping
-
-The repo includes a synthetic typing rhythm dataset generator:
-
-```bash
-python src/generate_typing_data.py \
-    --num-users 100 \
-    --sessions-per-user 20 \
-    --emotion-distribution balanced \
-    --output data/typing-sessions/
+```powershell
+python -m src.email_triage "mail-export" --recursive
 ```
 
-Based on research parameters from:
-- Chen et al. (2022): "Emotion Recognition from Keystroke Dynamics"
-- Khan & Hamdy (2023): "Typing Pattern Analysis for Affective Computing"
+Existing report files are protected by default. Pass `--overwrite` to replace an existing report. Run `python -m src.email_triage --help` to see all options.
 
----
+## Indicators and score
 
-## Project Structure
+Each indicator contributes a documented weight to a score capped at 100. The tool labels scores below 20 low priority, 20–49 medium, and 50 or higher high. The score is a rule-based triage priority, not a probability or a final phishing verdict.
 
-```
-emotion-adaptive-phishing/
-├── src/
-│   ├── emotion_classifier/
-│   │   ├── model.py         # LSTM emotion classifier
-│   │   ├── features.py      # Keystroke feature extraction
-│   │   └── train.py         # Training script
-│   ├── phishing_generator/
-│   │   ├── generator.py     # Emotion-adaptive email composer
-│   │   ├── templates.py     # Emotion-specific lure templates
-│   │   └── timing.py        # Optimal send-time predictor
-│   ├── phishing_detector/
-│   │   ├── detector.py      # Feature-rich phishing classifier
-│   │   └── train.py         # Training pipeline
-│   └── generate_typing_data.py
-├── data/
-├── requirements.txt
-├── README.md
-├── LICENSE
-└── .gitignore
-```
+`Authentication-Results` and `Received-SPF` headers can be forged in a raw message. Treat them as useful evidence only when a trusted mail gateway added them. Attachment checks inspect filenames only; they do not open, extract, or scan attachment contents. Link checks parse URLs but never resolve DNS or fetch the destination.
 
----
+A low score does not establish that a message is safe. This tool does not use sender reputation, allowlists, gateway policy, or organization-specific context.
 
-## Ethical Framework
+## Privacy
 
-This project is a **security research contribution** in two ways:
-1. Exposes how emotional state makes users more vulnerable to targeted phishing
-2. Builds a detector that specifically defends against this class of attacks
+Messages are parsed locally. The JSON report contains each filename, SHA-256, indicator codes, and limited domain-level evidence; it does not copy message bodies or full email addresses. Review the report before sharing it because domains and filenames can still identify people or organizations.
 
-All generated phishing samples are **fictional** and not deployed. Use only in controlled research settings with IRB approval if studying real users.
+## Project files
 
----
-
-## License
-
-MIT © [sparkx313](https://github.com/sparkx313)
+- `src/email_triage.py` — `.eml` parsing, local indicators, report generation, and CLI.
+- `requirements.txt` — documents that the tool has no third-party Python dependencies.
